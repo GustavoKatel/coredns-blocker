@@ -1,0 +1,16 @@
+.:53 {
+    metadata
+    prometheus 0.0.0.0:9153
+
+    bind 0.0.0.0
+
+    blocker https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts 1h hosts
+
+	log . "{common} {/blocker/request-blocked}"
+
+    forward . tls://1.1.1.1 tls://1.0.0.1 {
+        tls_servername cloudflare-dns.com
+    }
+    log
+    errors
+}

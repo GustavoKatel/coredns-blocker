@@ -67,10 +67,11 @@ func (b Blocker) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg)
 		metadata.SetValueFunc(ctx, MetadataRequestBlocked, func() string {
 			return "YES"
 		})
-		blockedEntries.WithLabelValues(domain).Inc()
+		processedEntries.WithLabelValues("blocked").Inc()
 		return dns.RcodeSuccess, nil
 	}
 
+	processedEntries.WithLabelValues("allowed").Inc()
 	return b.Next.ServeDNS(ctx, w, r)
 }
 

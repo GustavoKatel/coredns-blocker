@@ -8,11 +8,18 @@ import (
 )
 
 var (
-	// blockedEntries is number of requests blocked
-	blockedEntries = promauto.NewCounterVec(prometheus.CounterOpts{
+	// processedEntries is number of requests processed by domain
+	processedEntries = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: plugin.Namespace,
-		Subsystem: "blocker",
-		Name:      "entries_blocked",
+		Subsystem: PluginName,
+		Name:      "entries_processed",
 		Help:      "The number of requests blocked",
-	}, []string{"domain"})
+	}, []string{"status"})
+
+	blocklistSize = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: plugin.Namespace,
+		Subsystem: PluginName,
+		Name:      "blocklist_size",
+		Help:      "The combined number of entries in hosts and Corefile.",
+	}, []string{"source"})
 )

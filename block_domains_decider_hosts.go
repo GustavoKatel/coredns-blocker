@@ -2,60 +2,60 @@ package blocker
 
 import (
 	"bufio"
-	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/miekg/dns"
 )
 
 type BlockDomainsDeciderHosts struct {
+	blocklistResolver *BlocklistResolver
+	lastUpdated       time.Time
+	log               Logger
+
+	blocklistLock sync.RWMutex
 	blocklist     map[string]bool
-	blocklistFile string
-	lastUpdated   time.Time
-	log           Logger
 }
 
 // Name ...
-func NewBlockDomainsDeciderHosts(filePath string, logger Logger) BlockDomainsDecider {
-	return &BlockDomainsDeciderHosts{
-		blocklistFile: filePath,
-		log:           logger,
+func NewBlockDomainsDeciderHosts(resolver *BlocklistResolver, logger Logger) BlockDomainsDecider {
+	d := &BlockDomainsDeciderHosts{
+		blocklistResolver: resolver,
+		log:               logger,
+
+		blocklistLock: sync.RWMutex{},
 		blocklist:     map[string]bool{},
 	}
+
+	ch := make(chan string, 1)
+	resolver.Subscribe(ch)
+
+	go func() {
+		for contents := range ch {
+			d.log.Infof("received updated blocklist contents. Length %d", len(contents))
+			d.UpdateBlocklist(contents)
+		}
+	}()
+
+	return d
 }
 
 // IsDomainBlocked ...
 func (d *BlockDomainsDeciderHosts) IsDomainBlocked(domain string) bool {
+	d.blocklistLock.RLock()
+	defer d.blocklistLock.RUnlock()
+
 	return d.blocklist[domain]
 }
 
-// StartBlocklistUpdater ...
-func (d *BlockDomainsDeciderHosts) StartBlocklistUpdater(ticker *time.Ticker) {
-	go func() {
-		for {
-			tick := <-ticker.C
-			d.log.Debugf("Ticker arrived at time: %v", tick)
-
-			if d.IsBlocklistUpdateRequired() {
-				d.log.Debug("update required")
-				d.UpdateBlocklist()
-			} else {
-				d.log.Debug("update not required")
-			}
-		}
-	}()
-}
-
 // UpdateBlocklist ...
-func (d *BlockDomainsDeciderHosts) UpdateBlocklist() error {
+func (d *BlockDomainsDeciderHosts) UpdateBlocklist(contents string) error {
+	d.blocklistLock.Lock()
+	defer d.blocklistLock.Unlock()
+
 	// Update process
-	blocklistContent, err := os.Open(d.blocklistFile)
-	if err != nil {
-		d.log.Errorf("could not read blocklist file: %s", d.blocklistFile)
-		return err
-	}
-	defer blocklistContent.Close()
+	blocklistContent := strings.NewReader(contents)
 
 	numBlockedDomainsBefore := len(d.blocklist)
 	lastUpdatedBefore := d.lastUpdated
@@ -63,6 +63,14 @@ func (d *BlockDomainsDeciderHosts) UpdateBlocklist() error {
 	scanner := bufio.NewScanner(blocklistContent)
 	for scanner.Scan() {
 		hostLine := scanner.Text()
+
+		hostLine = strings.TrimSpace(hostLine)
+
+		if hostLine == "" || strings.HasPrefix(hostLine, "#") {
+			// Comment line
+			continue
+		}
+
 		comps := strings.Split(hostLine, " ")
 		if len(comps) < 2 {
 			// Bad line in the input file
@@ -79,11 +87,7 @@ func (d *BlockDomainsDeciderHosts) UpdateBlocklist() error {
 	d.log.Infof("updated blocklist; blocked domains: before: %d, after: %d; last updated: before: %v, after: %v",
 		numBlockedDomainsBefore, len(d.blocklist), lastUpdatedBefore, d.lastUpdated)
 
-	return nil
-}
+	blocklistSize.WithLabelValues(d.blocklistResolver.uri).Set(float64(len(d.blocklist)))
 
-// IsBlocklistUpdateRequired ...
-func (d *BlockDomainsDeciderHosts) IsBlocklistUpdateRequired() bool {
-	blocklistFileStat, _ := os.Stat(d.blocklistFile)
-	return blocklistFileStat.ModTime().After(d.lastUpdated)
+	return nil
 }

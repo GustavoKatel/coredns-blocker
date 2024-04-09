@@ -1,8 +1,8 @@
 package blocker
 
 import (
+	"context"
 	"fmt"
-	"os"
 	"time"
 )
 
@@ -10,8 +10,7 @@ import (
 // become a blocker. The purpose of each of the functions is described below.
 type BlockDomainsDecider interface {
 	IsDomainBlocked(domain string) bool
-	StartBlocklistUpdater(ticker *time.Ticker)
-	UpdateBlocklist() error
+	UpdateBlocklist(contents string) error
 }
 
 type BlocklistType string
@@ -20,13 +19,13 @@ const BlocklistType_Hosts BlocklistType = "hosts"
 const BlocklistType_ABP BlocklistType = "abp"
 
 // PrepareBlocklist ...
-func PrepareBlocklist(filePath string, blocklistUpdateFrequency string, blocklistType string, logger Logger) (BlockDomainsDecider, []func() error, error) {
-	_, err := os.Stat(filePath)
+func PrepareBlocklist(uri string, blocklistUpdateFrequency string, blocklistType string, logger Logger) (BlockDomainsDecider, []func() error, error) {
+	frequency, err := time.ParseDuration(blocklistUpdateFrequency)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	frequency, err := time.ParseDuration(blocklistUpdateFrequency)
+	resolver, err := NewBlocklistResolver(context.Background(), uri, frequency, logger)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -34,26 +33,25 @@ func PrepareBlocklist(filePath string, blocklistUpdateFrequency string, blocklis
 	var decider BlockDomainsDecider
 	switch BlocklistType(blocklistType) {
 	case BlocklistType_Hosts:
-		decider = NewBlockDomainsDeciderHosts(filePath, logger)
+		decider = NewBlockDomainsDeciderHosts(resolver, logger)
 	case BlocklistType_ABP:
-		decider = NewBlockDomainsDeciderABP(filePath, logger)
+		decider = NewBlockDomainsDeciderABP(resolver, logger)
 	}
 
 	// Always update the blocklist when the server starts up
-	decider.UpdateBlocklist()
+	resolver.ScheduleUpdate()
 
 	// Setup periodic updation of the blocklist
-	ticker := time.NewTicker(frequency)
-	decider.StartBlocklistUpdater(ticker)
+	resolver.Start()
 
-	stopTicker := func() error {
+	stopResolver := func() error {
 		fmt.Println("[INFO] Ticker was stopped.")
-		ticker.Stop()
+		resolver.Stop()
 		return nil
 	}
 
 	shutdownHooks := []func() error{
-		stopTicker,
+		stopResolver,
 	}
 
 	return decider, shutdownHooks, nil
