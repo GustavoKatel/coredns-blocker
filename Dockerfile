@@ -22,5 +22,6 @@ RUN make
 FROM alpine:latest
 
 COPY --from=builder /coredns/coredns /coredns/coredns
+COPY --from=builder /coredns/plugin.cfg /coredns/plugin.cfg
 
 ENTRYPOINT ["/coredns/coredns"]
