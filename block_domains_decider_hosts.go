@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/miekg/dns"
@@ -16,6 +17,8 @@ type BlockDomainsDeciderHosts struct {
 
 	blocklistLock sync.RWMutex
 	blocklist     map[string]bool
+
+	ready atomic.Bool
 }
 
 // Name ...
@@ -26,7 +29,11 @@ func NewBlockDomainsDeciderHosts(resolver *BlocklistResolver, logger Logger) Blo
 
 		blocklistLock: sync.RWMutex{},
 		blocklist:     map[string]bool{},
+
+		ready: atomic.Bool{},
 	}
+
+	d.ready.Store(false)
 
 	ch := make(chan string, 1)
 	resolver.Subscribe(ch)
@@ -35,10 +42,16 @@ func NewBlockDomainsDeciderHosts(resolver *BlocklistResolver, logger Logger) Blo
 		for contents := range ch {
 			d.log.Infof("received updated blocklist contents. Length %d", len(contents))
 			d.UpdateBlocklist(contents)
+
+			d.ready.Store(true)
 		}
 	}()
 
 	return d
+}
+
+func (d *BlockDomainsDeciderHosts) Ready() bool {
+	return d.ready.Load()
 }
 
 // IsDomainBlocked ...

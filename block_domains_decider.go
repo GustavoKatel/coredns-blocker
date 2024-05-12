@@ -11,6 +11,7 @@ import (
 type BlockDomainsDecider interface {
 	IsDomainBlocked(domain string) bool
 	UpdateBlocklist(contents string) error
+	Ready() bool
 }
 
 type BlocklistType string

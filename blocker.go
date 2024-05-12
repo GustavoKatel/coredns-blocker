@@ -6,6 +6,7 @@ import (
 
 	"github.com/coredns/coredns/plugin"
 	"github.com/coredns/coredns/plugin/metadata"
+	"github.com/coredns/coredns/plugin/ready"
 	"github.com/coredns/coredns/request"
 	"github.com/miekg/dns"
 )
@@ -15,6 +16,10 @@ type Blocker struct {
 	Decider BlockDomainsDecider
 }
 
+var _ plugin.Handler = (*Blocker)(nil)
+var _ metadata.Provider = (*Blocker)(nil)
+var _ ready.Readiness = (*Blocker)(nil)
+
 const MetadataRequestBlocked = "blocker/request-blocked"
 
 // Metadata implements the Metadata plugin's required interface in the blocker function.
@@ -23,6 +28,11 @@ func (b Blocker) Metadata(ctx context.Context, state request.Request) context.Co
 		return "NO"
 	})
 	return ctx
+}
+
+// Ready implements ready.Readiness.
+func (b *Blocker) Ready() bool {
+	return b.Decider.Ready()
 }
 
 func (b Blocker) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {
